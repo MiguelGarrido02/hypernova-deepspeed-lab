@@ -1,0 +1,13 @@
+{
+  "fp16": {
+    "enabled": true
+  },
+  "zero_optimization": {
+    "stage": 3,
+    "offload_param": {
+      "device": "cpu"
+    }
+  },
+  "train_micro_batch_size_per_gpu": 1,
+  "steps_per_print": 10
+}
