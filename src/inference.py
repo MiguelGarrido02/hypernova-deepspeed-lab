@@ -1,70 +1,61 @@
-import os 
+import os
 import torch
-import deepspeed
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 from dotenv import load_dotenv
 
-# Load api
+# 1. Setup
 load_dotenv()
 token = os.getenv("HF_TOKEN")
 
-# Config
-model_id = "MultiverseComputingCAI/HyperNova-60B"
+# We use the Unsloth 4-bit quantization to fit 70B into 48GB VRAM
+model_id = "unsloth/llama-3-70b-Instruct-bnb-4bit"
 
-# Quantization -> 4 bit config
-# bnb_config = BitsAndBytesConfig(
-#     load_in_4bit = True,
-#     bnb_4bit_quant_type = "nf4", #nf4 is a new quantization method that is more efficient than the traditional 4 bit quantization. It is based on the normal distribution and it is more accurate than the traditional 4 bit quantization.
-#     bnb_4bit_compute_dtype = torch.float16 # Use float16 for computation to maintain a good balance between performance and accuracy
-# )
+print(f"🚀 Initializing Parallel Load for {model_id}...")
 
-# Load tokenizer
-print("Loading tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(model_id, token = token, trust_remote_code = True)
+# 2. Tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 
-# Load model
-print("Loading model...")
+# 3. Parallel Model Loading (The Critical Step)
+# On 2x L4s, it will put ~20GB on GPU 0 and ~20GB on GPU 1.
+print("📦 Distributing model across GPU 0 and GPU 1...")
+
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    # quantization_config = bnb_config,
-    device_map = "auto", # Automatically map model layers to available devices (GPUs/CPU) so we can leverage multiple GPUs 
-    trust_remote_code = True,
-    token = token
+    device_map="auto", #automaitcally split model across available GPUs
+    trust_remote_code=True,
+    token=token,
+    torch_dtype=torch.float16,
+    low_cpu_mem_usage=True
 )
 
-print("Model loaded :)\n---> Initializing DeepSpeed inference engine...")
+# Verify where the model lives
+print(f"Model Loaded!")
+print(f"   - Memory Footprint: {model.get_memory_footprint() / 1e9:.2f} GB")
+print(f"   - Distribution: {model.hf_device_map}") 
 
+#Run Inference
+prompt = "Explain the architecture of Transformer models for a 5-year old."
 
-# Initialize DeepSpeed inference engine
-ds_engine = deepspeed.init_inference(
-    model,
-    mp_size = 2, # sharding across 2 GPUs
-    dtype = torch.float16,
-    replace_with_kernel_inject = True # Replace standard model layers with DeepSpeed optimized kernels for faster inference
-)
+messages = [
+    {"role": "user", "content": prompt},
+]
+inputs = tokenizer.apply_chat_template(
+    messages, 
+    tokenize=True, 
+    add_generation_prompt=True, 
+    return_tensors="pt"
+).to("cuda") # "cuda" automatically points to the entry GPU
 
-print("\nDeepSpeed inference engine initialized successfully! Ready for inference.")
-
-
-# Run Inference
-prompt = "Explain the concept of quantum tensor networks in non technical terms."
-inputs = tokenizer(prompt, return_tensors = "pt").to(ds_engine.module.device)
-
-print("Generating response for the prompt:\n", prompt)
-
-# Generate
-with torch.no_grad():
-    outputs = ds_engine.module.generate(
-        **inputs,
-        max_new_tokens = 150,
-        temperature = 0.7,
-        do_sample = True,
-        top_n = 5
-    )
-
-
-response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print("Streaming response from Multi-GPU Cluster...")
 print("-" * 30)
-print("MODEL OUTPUT:")
-print(response)
+
+streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+
+_ = model.generate(
+    inputs, 
+    streamer=streamer, 
+    max_new_tokens=300, 
+    temperature=0.7,
+    do_sample=True
+)
 print("-" * 30)
