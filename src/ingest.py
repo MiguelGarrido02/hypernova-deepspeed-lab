@@ -27,7 +27,7 @@ def ingest():
         title = article.get("title", "No Title")
         content = article.get("content", "")
 
-        page_content = f"Title: {title}\nSource: {source_url}\nContent: {content}"
+        page_content = f"Title: {title}\nContent: {content}"
 
         # Create Document object
         doc = Document(
