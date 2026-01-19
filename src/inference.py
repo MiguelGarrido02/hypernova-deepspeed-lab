@@ -1,56 +1,60 @@
 import os
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, BitsAndBytesConfig
 from dotenv import load_dotenv
 
-# 1. Setup
 load_dotenv()
 token = os.getenv("HF_TOKEN")
 
-# We use the Unsloth 4-bit quantization to fit 70B into 48GB VRAM
-model_id = "unsloth/llama-3-70b-Instruct-bnb-4bit"
+# Model: Qwen2.5-32B-Instruct
+# Size: ~32-34 GB
+# Requires 2 GPUs (1 L4 of 24GB is insufficient).
+model_id = "Qwen/Qwen2.5-32B-Instruct"
 
-print(f"🚀 Initializing Parallel Load for {model_id}...")
+print(f"🚀 Initializing Qwen2.5-32B (8-bit Precision) on 2x L4 GPUs...")
 
-# Tokenizer
+# Configure for quantization with bitsandbytes (bnb) to reduce memory usage
+# We use 8 bit 
+bnb_config = BitsAndBytesConfig(
+    load_in_8bit=False,                 # with 8 bit model approx 32GB
+    llm_int8_enable_fp32_cpu_offload=True 
+)
+
+# tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
 if tokenizer.pad_token_id is None:
     tokenizer.pad_token_id = tokenizer.eos_token_id
 tokenizer.padding_side = "left"
 
-
-# Parallel Model Loading (The Critical Step)
-# On 2x L4s, it will put ~20GB on GPU 0 and ~20GB on GPU 1.
-print("📦 Distributing model across GPU 0 and GPU 1...")
+# model loading (pipeline parallelism)
+print(f"Loading {model_id} across GPUs...")
 
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map="auto", #automaitcally split model across available GPUs
+    device_map="auto",          # Automatic distribution across available GPUs
+    quantization_config=bnb_config,
     trust_remote_code=True,
     token=token,
-    dtype=torch.bfloat16, # Native for L4
     low_cpu_mem_usage=True
 )
 
-# Verify where the model lives
 print(f"Model Loaded!")
+# Will show the distribution of layers across GPUs and the memory footprint
 print(f"   - Memory Footprint: {model.get_memory_footprint() / 1e9:.2f} GB")
 print(f"   - Distribution: {model.hf_device_map}") 
 
-#Run Inference
-prompt = "Explain the architecture of Transformer models for a 5-year old."
+# Inference
+prompt = "Explain the difference between 'Data Parallelism' and 'Model Parallelism' in distributed computing."
+messages = [{"role": "user", "content": prompt}]
 
-messages = [
-    {"role": "user", "content": prompt},
-]
 inputs = tokenizer.apply_chat_template(
     messages, 
     tokenize=True, 
     add_generation_prompt=True, 
     return_tensors="pt"
-).to("cuda") # "cuda" automatically points to the entry GPU
+).to("cuda")
 
-print("Streaming response from Multi-GPU Cluster...")
+print("Streaming response (Creative Mode)...")
 print("-" * 30)
 
 streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -58,10 +62,10 @@ streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 _ = model.generate(
     inputs, 
     streamer=streamer, 
-    max_new_tokens=300, 
-    temperature=0.6,
-    do_sample=True,
-    top_p = 0.9,
-    pad_token_id=tokenizer.eos_token_id # Make sure it knows when to stop
+    max_new_tokens=512, 
+    do_sample=True,       
+    temperature=0.7,
+    top_p=0.9,
+    pad_token_id=tokenizer.eos_token_id
 )
 print("-" * 30)
