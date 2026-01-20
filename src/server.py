@@ -6,14 +6,14 @@ from dotenv import load_dotenv
 from vllm import LLM, SamplingParams
 from transformers import AutoTokenizer 
 
-# 1. SETUP & CONFIG
+# configuration
 app = FastAPI(title="HyperNova Inference Server")
 load_dotenv()
 hf_token = os.getenv("HF_TOKEN")
 
 model_id = "MultiverseComputingCAI/HyperNova-60B"
 
-print(f"-----Initializing HyperNova-60B on 2x RTX 4090 with Tensor Parallelism...-----")
+print(f"-----Initializing HyperNova-60B on 2x RTX 3090 with Tensor Parallelism...-----")
 
 # tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
@@ -38,29 +38,27 @@ class ChatRequest(BaseModel):
 def generate_text(request: ChatRequest):
     print(f"Received Chat Request...")
 
-    # 1. USE THE DOCUMENTATION'S METHOD TO FORMAT PROMPT
-    # This converts the list of messages into the EXACT string the model expects.
+    # This converts the list of messages into the string the model expects.
     prompt_tokenized = tokenizer.apply_chat_template(
         request.messages,
         tokenize=False, # We want the string string for vLLM
         add_generation_prompt=True
     )
 
-    # 2. Define params
+    # params
     sampling_params = SamplingParams(
         temperature=request.temperature,
         top_p=0.9,
         max_tokens=request.max_tokens,
-        # We can now trust the model's own EOS token, but keep safety stops
+        # safety loop
         stop=["<|endoftext|>", "</s>"] 
     )
 
-    # 3. Run Inference
+    # inference
     outputs = llm.generate([prompt_tokenized], sampling_params)
     generated_text = outputs[0].outputs[0].text
     
-    # 4. STILL KEEP THE PARSING LOGIC (Just in case thoughts persist)
-    # Even with correct templates, "reasoning" models often still output thoughts.
+    # safety check for final delimiter
     delimiter = "assistantfinal"
     if delimiter in generated_text:
         final_response = generated_text.split(delimiter)[-1].strip()
