@@ -5,7 +5,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # --- CONFIGURATION ---
-RUNPOD_API_URL = "http://94.101.98.238:8000/generate"
+RUNPOD_API_URL = "http://213.192.2.124:40045/generate"
 
 # 2. PATHS
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -56,27 +56,60 @@ if prompt := st.chat_input("Ask about Multiverse technology..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Retrieval (RAG)
+# 2. Retrieval (RAG) with Metadata Formatting
     with st.spinner("Searching internal knowledge base..."):
         if db:
-            # MMR Search for diversity (prevents duplicate 'About Us' chunks)
-            docs = db.max_marginal_relevance_search(prompt, k=3, fetch_k=10)
-            context_text = "\n\n".join([d.page_content for d in docs])
+            # Increase k to 5 to ensure we find distinct articles (we filter duplicates below)
+            docs = db.max_marginal_relevance_search(prompt, k=5, fetch_k=20)
+            
+            context_entries = []
+            seen_titles = set()
+            
+            for doc in docs:
+                # Extract Metadata
+                title = doc.metadata.get('title', 'No Title')
+                source = doc.metadata.get('source', 'No Source')
+                date = doc.metadata.get('date', 'No Date')
+                
+                # Deduplication: If we already have this article, skip it to get more variety
+                if title in seen_titles:
+                    continue
+                
+                seen_titles.add(title)
+                
+                # Stop if we have 3 distinct articles
+                if len(context_entries) >= 3:
+                    break
+                
+                # CLEANER FORMATTING: Explicitly tell the LLM what is Metadata
+                entry = f"""
+                --- ARTICLE {len(context_entries) + 1} ---
+                Title: {title}
+                Source: {source}
+                Date: {date}
+                Content Summary:
+                {doc.page_content}
+                ------------------------
+                """
+                context_entries.append(entry)
+            
+            context_text = "\n".join(context_entries)
         else:
             context_text = "No context available."
 
-    # 3. Construct Prompt for Llama 3 / HyperNova
-    full_prompt = f"""
-    [INST] You are an expert assistant for Multiverse Computing. 
-    Use the Context below to answer the user's question accurately.
-    
-    Context:
-    {context_text}
-    
-    Question: 
-    {prompt}
-    [/INST]
-    """
+    # 3. Construct Messages List (No more manual formatting!)
+        system_instruction = f"""
+        You are an expert assistant for Multiverse Computing.
+        Answer the user's question using ONLY the provided Context below.
+        If asked for news, list the Titles. Always cite the Source URL.
+        CONTEXT:
+        {context_text}
+        """
+
+        messages_payload = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt}
+        ]
 
     # Call Remote Inference Server
     with st.chat_message("assistant"):
@@ -84,9 +117,9 @@ if prompt := st.chat_input("Ask about Multiverse technology..."):
         try:
             with st.spinner("Querying Remote Tensor Parallel Model..."):
                 payload = {
-                    "prompt": full_prompt,
+                    "messages": messages_payload,
                     "max_tokens": 512,
-                    "temperature": 0.7
+                    "temperature": 0.2
                 }
                 # Send HTTP Request GPUs
                 response = requests.post(RUNPOD_API_URL, json=payload, timeout=60)
@@ -96,8 +129,8 @@ if prompt := st.chat_input("Ask about Multiverse technology..."):
                     message_placeholder.markdown(ai_answer)
                     
                     # Show what context was used 
-                    with st.expander("View Retrieved Context (Source Documents)"):
-                        st.text(context_text)
+                    # with st.expander("View Retrieved Context (Source Documents)"):
+                    #     st.text(context_text)
                 else:
                     ai_answer = f"Error from Inference Server: {response.text}"
                     message_placeholder.markdown(ai_answer)

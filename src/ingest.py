@@ -26,13 +26,13 @@ def ingest():
         source_url = article.get("url", "unknown")
         title = article.get("title", "No Title")
         content = article.get("content", "")
-
+        date = article.get("date", "unknown")
         page_content = f"Title: {title}\nContent: {content}"
 
         # Create Document object
         doc = Document(
             page_content=page_content,
-            metadata={"source": source_url, "title": title}
+            metadata={"source": source_url, "title": title, "date": date}
         )
         documents.append(doc)
 
