@@ -36,7 +36,7 @@ db = load_db()
 st.title("🌌 Multiverse Computing - GenAI Ops Demo")
 st.markdown("""
 *Running on a Hybrid Cloud Architecture:*
-- **Frontend & Retrieval:** Local Kubernetes (Minikube)
+- **Knowledge Base:** Local ChromaDB with LangChain & HuggingFace Embeddings
 - **Inference Engine:** Remote GPU Cluster (2x RTX 4090 via DeepSpeed/vLLM)
 """)
 

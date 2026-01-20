@@ -9,7 +9,7 @@ hf_token = os.getenv("HF_TOKEN")
 # get model
 model_id = "MultiverseComputingCAI/HyperNova-60B" 
 
-print(f"🚀 Iniciando HyperNova-60B en 2x RTX 4090...")
+print(f"Initializing HyperNova-60B on 2x RTX 3090 with Tensor Parallelism...")
 
 # vLLM LLM initialization
 # tensor_parallel_size=2 hace que el modelo se reparta en ambas GPUs automáticamente
