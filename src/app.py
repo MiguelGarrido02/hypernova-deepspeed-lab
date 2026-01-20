@@ -4,14 +4,12 @@ import os
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# --- CONFIGURATION ---
+# Config
 RUNPOD_API_URL = "http://213.192.2.124:40045/generate"
-
-# 2. PATHS
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "chroma_db")
 
-# --- SETUP (RUNS ONCE) ---
+# Setting up (only run once)
 st.set_page_config(page_title="Multiverse News RAG Assistant", layout="wide")
 
 @st.cache_resource
@@ -40,7 +38,7 @@ st.markdown("""
 - **Inference Engine:** Remote GPU Cluster (2x RTX 4090 via DeepSpeed/vLLM)
 """)
 
-# Initialize chat history
+# chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -49,14 +47,14 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# --- THE LOGIC LOOP ---
+# logic loop
 if prompt := st.chat_input("Ask about Multiverse technology..."):
-    # 1. User Message
+    # user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-# 2. Retrieval (RAG) with Metadata Formatting
+# RAG
     with st.spinner("Searching internal knowledge base..."):
         if db:
             # Increase k to 5 to ensure we find distinct articles (we filter duplicates below)
@@ -97,7 +95,7 @@ if prompt := st.chat_input("Ask about Multiverse technology..."):
         else:
             context_text = "No context available."
 
-    # 3. Construct Messages List (No more manual formatting!)
+    # 3. Construct Messages List 
         system_instruction = f"""
         You are an expert assistant for Multiverse Computing.
         Answer the user's question using ONLY the provided Context below.
